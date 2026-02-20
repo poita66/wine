@@ -58,6 +58,7 @@ static RTL_CRITICAL_SECTION vcomp_section = { &critsect_debug, -1, 0, 0, 0, 0 };
 #define VCOMP_DYNAMIC_FLAGS_STATIC      0x01
 #define VCOMP_DYNAMIC_FLAGS_CHUNKED     0x02
 #define VCOMP_DYNAMIC_FLAGS_GUIDED      0x03
+#define VCOMP_DYNAMIC_FLAGS_RUNTIME     0x20
 #define VCOMP_DYNAMIC_FLAGS_INCREMENT   0x40
 
 struct vcomp_thread_data
@@ -1279,7 +1280,7 @@ void CDECL _vcomp_for_dynamic_init(unsigned int flags, unsigned int first, unsig
     struct vcomp_task_data *task_data = thread_data->task;
     int num_threads = team_data ? team_data->num_threads : 1;
     int thread_num = thread_data->thread_num;
-    unsigned int type = flags & ~VCOMP_DYNAMIC_FLAGS_INCREMENT;
+    unsigned int type = flags & ~(VCOMP_DYNAMIC_FLAGS_INCREMENT | VCOMP_DYNAMIC_FLAGS_RUNTIME);
 
     TRACE("(%u, %u, %u, %d, %u)\n", flags, first, last, step, chunksize);
 
@@ -1321,7 +1322,7 @@ void CDECL _vcomp_for_dynamic_init(unsigned int flags, unsigned int first, unsig
         if (type != VCOMP_DYNAMIC_FLAGS_CHUNKED &&
             type != VCOMP_DYNAMIC_FLAGS_GUIDED)
         {
-            FIXME("unsupported flags %u\n", flags);
+            FIXME("unsupported schedule type %#x (flags %u)\n", type, flags);
             type = VCOMP_DYNAMIC_FLAGS_GUIDED;
         }
 
