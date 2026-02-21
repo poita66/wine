@@ -28,6 +28,7 @@
 #include "config.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -337,6 +338,139 @@ static NTSTATUS v4l_device_set_prop( void *args )
     if (xioctl(device->fd, VIDIOC_S_CTRL, &ctrl) == -1)
     {
         WARN("Failed to set property: %s\n", strerror(errno));
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
+/* CameraControlProperty values from the Windows SDK. */
+#define CAMERACONTROL_PAN      0
+#define CAMERACONTROL_TILT     1
+#define CAMERACONTROL_ROLL     2
+#define CAMERACONTROL_ZOOM     3
+#define CAMERACONTROL_EXPOSURE 4
+#define CAMERACONTROL_IRIS     5
+#define CAMERACONTROL_FOCUS    6
+
+static __u32 v4l2_cid_from_camera_control_property(LONG property)
+{
+    switch (property)
+    {
+    case CAMERACONTROL_PAN:
+        return V4L2_CID_PAN_ABSOLUTE;
+    case CAMERACONTROL_TILT:
+        return V4L2_CID_TILT_ABSOLUTE;
+    case CAMERACONTROL_ZOOM:
+        return V4L2_CID_ZOOM_ABSOLUTE;
+    case CAMERACONTROL_EXPOSURE:
+        return V4L2_CID_EXPOSURE_ABSOLUTE;
+    case CAMERACONTROL_IRIS:
+        return V4L2_CID_IRIS_ABSOLUTE;
+    case CAMERACONTROL_FOCUS:
+        return V4L2_CID_FOCUS_ABSOLUTE;
+    default:
+        FIXME("Unhandled camera control property %d.\n", property);
+        return 0;
+    }
+}
+
+/* Windows IAMCameraControl exposure uses log2 seconds (e.g. -7 means 2^-7 s).
+ * V4L2_CID_EXPOSURE_ABSOLUTE uses linear 100µs units.  Convert directly. */
+static LONG exposure_win_to_v4l2(LONG win_value)
+{
+    double seconds = pow(2.0, win_value);
+    LONG v4l2_value = (LONG)(seconds * 10000.0 + 0.5);
+    if (v4l2_value < 1) v4l2_value = 1;
+    TRACE("exposure win %d -> v4l2 %d.\n", win_value, v4l2_value);
+    return v4l2_value;
+}
+
+static LONG exposure_v4l2_to_win(LONG v4l2_value)
+{
+    double seconds = v4l2_value / 10000.0;
+    return (LONG)floor(log2(seconds) + 0.5);
+}
+
+static NTSTATUS v4l_device_get_camera_control_range( void *args )
+{
+    const struct get_camera_control_range_params *params = args;
+    struct video_capture_device *device = get_device(params->device);
+    struct v4l2_queryctrl ctrl;
+
+    ctrl.id = v4l2_cid_from_camera_control_property(params->property);
+    if (!ctrl.id)
+        return E_PROP_ID_UNSUPPORTED;
+
+    if (xioctl(device->fd, VIDIOC_QUERYCTRL, &ctrl) == -1)
+    {
+        WARN("Failed to query camera control %d: %s\n", params->property, strerror(errno));
+        return E_PROP_ID_UNSUPPORTED;
+    }
+
+    if (params->property == CAMERACONTROL_EXPOSURE)
+    {
+        *params->min = exposure_v4l2_to_win(ctrl.minimum);
+        *params->max = exposure_v4l2_to_win(ctrl.maximum);
+        *params->step = 1;
+        *params->default_value = exposure_v4l2_to_win(ctrl.default_value);
+    }
+    else
+    {
+        *params->min = ctrl.minimum;
+        *params->max = ctrl.maximum;
+        *params->step = ctrl.step;
+        *params->default_value = ctrl.default_value;
+    }
+    *params->flags = 0x0002; /* CameraControl_Flags_Manual */
+    return S_OK;
+}
+
+static NTSTATUS v4l_device_get_camera_control( void *args )
+{
+    const struct get_camera_control_params *params = args;
+    struct video_capture_device *device = get_device(params->device);
+    struct v4l2_control ctrl;
+
+    ctrl.id = v4l2_cid_from_camera_control_property(params->property);
+    if (!ctrl.id)
+        return E_PROP_ID_UNSUPPORTED;
+
+    if (xioctl(device->fd, VIDIOC_G_CTRL, &ctrl) == -1)
+    {
+        WARN("Failed to get camera control %d: %s\n", params->property, strerror(errno));
+        return E_FAIL;
+    }
+
+    if (params->property == CAMERACONTROL_EXPOSURE)
+        *params->value = exposure_v4l2_to_win(ctrl.value);
+    else
+        *params->value = ctrl.value;
+    *params->flags = 0x0002; /* CameraControl_Flags_Manual */
+    return S_OK;
+}
+
+static NTSTATUS v4l_device_set_camera_control( void *args )
+{
+    const struct set_camera_control_params *params = args;
+    struct video_capture_device *device = get_device(params->device);
+    struct v4l2_control ctrl;
+
+    ctrl.id = v4l2_cid_from_camera_control_property(params->property);
+    if (!ctrl.id)
+        return E_PROP_ID_UNSUPPORTED;
+
+    if (params->property == CAMERACONTROL_EXPOSURE)
+        ctrl.value = exposure_win_to_v4l2(params->value);
+    else
+        ctrl.value = params->value;
+
+    TRACE("camera control %d, app value %d, v4l2 value %d.\n",
+            params->property, params->value, ctrl.value);
+
+    if (xioctl(device->fd, VIDIOC_S_CTRL, &ctrl) == -1)
+    {
+        WARN("Failed to set camera control %d: %s\n", params->property, strerror(errno));
         return E_FAIL;
     }
 
@@ -666,6 +800,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     v4l_device_get_prop,
     v4l_device_set_prop,
     v4l_device_read_frame,
+    v4l_device_get_camera_control_range,
+    v4l_device_get_camera_control,
+    v4l_device_set_camera_control,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -959,6 +1096,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wow64_v4l_device_get_prop,
     v4l_device_set_prop,
     wow64_v4l_device_read_frame,
+    v4l_device_get_camera_control_range,
+    v4l_device_get_camera_control,
+    v4l_device_set_camera_control,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
