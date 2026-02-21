@@ -784,6 +784,41 @@ static NTSTATUS v4l_device_destroy( void *args )
     return S_OK;
 }
 
+/* UVC extension unit control query via UVCIOC_CTRL_QUERY */
+struct uvc_xu_control_query {
+    __u8 unit;
+    __u8 selector;
+    __u8 query;         /* UVC_SET_CUR=0x01, UVC_GET_CUR=0x81 */
+    __u16 size;
+    __u8 *data;
+};
+#define UVCIOC_CTRL_QUERY _IOWR('u', 0x21, struct uvc_xu_control_query)
+
+static NTSTATUS v4l_xu_control( void *args )
+{
+    const struct xu_control_params *params = args;
+    struct video_capture_device *device = get_device(params->device);
+    struct uvc_xu_control_query xu;
+
+    xu.unit = params->unit;
+    xu.selector = params->selector;
+    xu.query = params->query;
+    xu.size = params->size;
+    xu.data = params->data;
+
+    TRACE("device %p, unit %u, selector %u, query %#x, size %u.\n",
+            device, xu.unit, xu.selector, xu.query, xu.size);
+
+    /* Use raw ioctl, not v4l2_ioctl, since UVCIOC_CTRL_QUERY is not a V4L2 ioctl. */
+    if (ioctl(device->fd, UVCIOC_CTRL_QUERY, &xu) == -1)
+    {
+        WARN("UVCIOC_CTRL_QUERY failed: %s\n", strerror(errno));
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     v4l_device_create,
@@ -803,6 +838,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     v4l_device_get_camera_control_range,
     v4l_device_get_camera_control,
     v4l_device_set_camera_control,
+    v4l_xu_control,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -1099,6 +1135,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     v4l_device_get_camera_control_range,
     v4l_device_get_camera_control,
     v4l_device_set_camera_control,
+    v4l_xu_control,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
