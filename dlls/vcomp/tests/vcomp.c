@@ -139,6 +139,7 @@ static void  (CDECL   *pomp_unset_nest_lock)(omp_nest_lock_t *lock);
 #define VCOMP_DYNAMIC_FLAGS_STATIC      0x01
 #define VCOMP_DYNAMIC_FLAGS_CHUNKED     0x02
 #define VCOMP_DYNAMIC_FLAGS_GUIDED      0x03
+#define VCOMP_DYNAMIC_FLAGS_RUNTIME     0x20
 #define VCOMP_DYNAMIC_FLAGS_INCREMENT   0x40
 
 #define VCOMP_REDUCTION_FLAGS_ADD       0x100
@@ -1709,6 +1710,33 @@ static void test_vcomp_for_dynamic_init(void)
 
         a = b = c = d = 0;
         p_vcomp_fork(FALSE, 5, for_dynamic_guided_cb, 0, &a, &b, &c, &d);
+        ok(a == guided_a[0], "expected a == %d, got %ld\n", guided_a[0], a);
+        ok(b == guided_b[0], "expected b == %d, got %ld\n", guided_b[0], b);
+        ok(c == guided_c[0], "expected c == %d, got %ld\n", guided_c[0], c);
+        ok(d == guided_d[0], "expected d == %d, got %ld\n", guided_d[0], d);
+    }
+
+    /* test runtime flag (0x20) combined with guided scheduling */
+    a = b = c = d = 0;
+    for_dynamic_guided_cb(VCOMP_DYNAMIC_FLAGS_GUIDED | VCOMP_DYNAMIC_FLAGS_RUNTIME, &a, &b, &c, &d);
+    ok(a == guided_a[0], "expected a == %d, got %ld\n", guided_a[0], a);
+    ok(b == guided_b[0], "expected b == %d, got %ld\n", guided_b[0], b);
+    ok(c == guided_c[0], "expected c == %d, got %ld\n", guided_c[0], c);
+    ok(d == guided_d[0], "expected d == %d, got %ld\n", guided_d[0], d);
+
+    for (i = 1; i <= 4; i++)
+    {
+        pomp_set_num_threads(i);
+
+        a = b = c = d = 0;
+        p_vcomp_fork(TRUE, 5, for_dynamic_guided_cb, VCOMP_DYNAMIC_FLAGS_GUIDED | VCOMP_DYNAMIC_FLAGS_RUNTIME, &a, &b, &c, &d);
+        ok(a == guided_a[i - 1], "expected a == %d, got %ld\n", guided_a[i - 1], a);
+        ok(b == guided_b[i - 1], "expected b == %d, got %ld\n", guided_b[i - 1], b);
+        ok(c == guided_c[i - 1], "expected c == %d, got %ld\n", guided_c[i - 1], c);
+        ok(d == guided_d[i - 1], "expected d == %d, got %ld\n", guided_d[i - 1], d);
+
+        a = b = c = d = 0;
+        p_vcomp_fork(FALSE, 5, for_dynamic_guided_cb, VCOMP_DYNAMIC_FLAGS_GUIDED | VCOMP_DYNAMIC_FLAGS_RUNTIME, &a, &b, &c, &d);
         ok(a == guided_a[0], "expected a == %d, got %ld\n", guided_a[0], a);
         ok(b == guided_b[0], "expected b == %d, got %ld\n", guided_b[0], b);
         ok(c == guided_c[0], "expected c == %d, got %ld\n", guided_c[0], c);
