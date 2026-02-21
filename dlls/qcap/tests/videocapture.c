@@ -389,6 +389,7 @@ static void test_pins(IBaseFilter *filter)
 static void test_filter_interfaces(IBaseFilter *filter)
 {
     check_interface(filter, &IID_IAMFilterMiscFlags, TRUE);
+    check_interface(filter, &IID_IAMCameraControl, TRUE);
     check_interface(filter, &IID_IAMVideoControl, TRUE);
     check_interface(filter, &IID_IAMVideoProcAmp, TRUE);
     check_interface(filter, &IID_IBaseFilter, TRUE);
