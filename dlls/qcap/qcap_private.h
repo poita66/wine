@@ -166,6 +166,17 @@ struct set_camera_control_params
     LONG                         value;
     LONG                         flags;
 };
+
+struct xu_control_params
+{
+    video_capture_device_t       device;
+    unsigned char                unit;
+    unsigned char                selector;
+    unsigned char                query;     /* UVC_SET_CUR=1, UVC_GET_CUR=0x81 */
+    unsigned short               size;
+    void                        *data;
+};
+
 enum unix_funcs
 {
     unix_create,
@@ -185,6 +196,7 @@ enum unix_funcs
     unix_get_camera_control_range,
     unix_get_camera_control,
     unix_set_camera_control,
+    unix_xu_control,
     unix_funcs_count
 };
 
