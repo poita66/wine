@@ -267,6 +267,16 @@ static __u32 v4l2_cid_from_qcap_property(VideoProcAmpProperty property)
         return V4L2_CID_HUE;
     case VideoProcAmp_Saturation:
         return V4L2_CID_SATURATION;
+    case VideoProcAmp_Sharpness:
+        return V4L2_CID_SHARPNESS;
+    case VideoProcAmp_Gamma:
+        return V4L2_CID_GAMMA;
+    case VideoProcAmp_WhiteBalance:
+        return V4L2_CID_WHITE_BALANCE_TEMPERATURE;
+    case VideoProcAmp_BacklightCompensation:
+        return V4L2_CID_BACKLIGHT_COMPENSATION;
+    case VideoProcAmp_Gain:
+        return V4L2_CID_GAIN;
     default:
         FIXME("Unhandled property %d.\n", property);
         return 0;
