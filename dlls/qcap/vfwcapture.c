@@ -31,6 +31,7 @@ struct vfw_capture
     IAMStreamConfig IAMStreamConfig_iface;
     IAMVideoControl IAMVideoControl_iface;
     IAMVideoProcAmp IAMVideoProcAmp_iface;
+    IAMCameraControl IAMCameraControl_iface;
     IAMFilterMiscFlags IAMFilterMiscFlags_iface;
     IPersistPropertyBag IPersistPropertyBag_iface;
     BOOL init;
@@ -68,6 +69,11 @@ static inline struct vfw_capture *impl_from_IAMVideoControl(IAMVideoControl *ifa
 static inline struct vfw_capture *impl_from_IAMVideoProcAmp(IAMVideoProcAmp *iface)
 {
     return CONTAINING_RECORD(iface, struct vfw_capture, IAMVideoProcAmp_iface);
+}
+
+static inline struct vfw_capture *impl_from_IAMCameraControl(IAMCameraControl *iface)
+{
+    return CONTAINING_RECORD(iface, struct vfw_capture, IAMCameraControl_iface);
 }
 
 static inline struct vfw_capture *impl_from_IAMFilterMiscFlags(IAMFilterMiscFlags *iface)
@@ -122,6 +128,8 @@ static HRESULT vfw_capture_query_interface(struct strmbase_filter *iface, REFIID
         *out = &filter->IAMVideoControl_iface;
     else if (IsEqualGUID(iid, &IID_IAMVideoProcAmp))
         *out = &filter->IAMVideoProcAmp_iface;
+    else if (IsEqualGUID(iid, &IID_IAMCameraControl))
+        *out = &filter->IAMCameraControl_iface;
     else if (IsEqualGUID(iid, &IID_IAMFilterMiscFlags))
         *out = &filter->IAMFilterMiscFlags_iface;
     else
@@ -526,6 +534,68 @@ static const IAMVideoProcAmpVtbl IAMVideoProcAmp_VTable =
     AMVideoProcAmp_Get,
 };
 
+static HRESULT WINAPI AMCameraControl_QueryInterface(IAMCameraControl *iface, REFIID iid, void **out)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    return IUnknown_QueryInterface(filter->filter.outer_unk, iid, out);
+}
+
+static ULONG WINAPI AMCameraControl_AddRef(IAMCameraControl *iface)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    return IUnknown_AddRef(filter->filter.outer_unk);
+}
+
+static ULONG WINAPI AMCameraControl_Release(IAMCameraControl *iface)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    return IUnknown_Release(filter->filter.outer_unk);
+}
+
+static HRESULT WINAPI AMCameraControl_GetRange(IAMCameraControl *iface, LONG property,
+        LONG *min, LONG *max, LONG *step, LONG *default_value, LONG *flags)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    struct get_camera_control_range_params params = { filter->device, property, min, max, step, default_value, flags };
+
+    TRACE("filter %p, property %#lx, min %p, max %p, step %p, default_value %p, flags %p.\n",
+            filter, property, min, max, step, default_value, flags);
+
+    return V4L_CALL( get_camera_control_range, &params );
+}
+
+static HRESULT WINAPI AMCameraControl_Set(IAMCameraControl *iface, LONG property,
+        LONG value, LONG flags)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    struct set_camera_control_params params = { filter->device, property, value, flags };
+
+    TRACE("filter %p, property %#lx, value %ld, flags %#lx.\n", filter, property, value, flags);
+
+    return V4L_CALL( set_camera_control, &params );
+}
+
+static HRESULT WINAPI AMCameraControl_Get(IAMCameraControl *iface, LONG property,
+        LONG *value, LONG *flags)
+{
+    struct vfw_capture *filter = impl_from_IAMCameraControl(iface);
+    struct get_camera_control_params params = { filter->device, property, value, flags };
+
+    TRACE("filter %p, property %#lx, value %p, flags %p.\n", filter, property, value, flags);
+
+    return V4L_CALL( get_camera_control, &params );
+}
+
+static const IAMCameraControlVtbl IAMCameraControl_VTable =
+{
+    AMCameraControl_QueryInterface,
+    AMCameraControl_AddRef,
+    AMCameraControl_Release,
+    AMCameraControl_GetRange,
+    AMCameraControl_Set,
+    AMCameraControl_Get,
+};
+
 static HRESULT WINAPI PPB_QueryInterface(IPersistPropertyBag *iface, REFIID iid, void **out)
 {
     struct vfw_capture *filter = impl_from_IPersistPropertyBag(iface);
@@ -922,6 +992,7 @@ HRESULT vfw_capture_create(IUnknown *outer, IUnknown **out)
     object->IAMStreamConfig_iface.lpVtbl = &IAMStreamConfig_VTable;
     object->IAMVideoControl_iface.lpVtbl = &IAMVideoControl_VTable;
     object->IAMVideoProcAmp_iface.lpVtbl = &IAMVideoProcAmp_VTable;
+    object->IAMCameraControl_iface.lpVtbl = &IAMCameraControl_VTable;
     object->IAMFilterMiscFlags_iface.lpVtbl = &IAMFilterMiscFlags_VTable;
     object->IPersistPropertyBag_iface.lpVtbl = &IPersistPropertyBag_VTable;
 

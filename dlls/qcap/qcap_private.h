@@ -140,6 +140,32 @@ struct read_frame_params
     void                        *data;
 };
 
+struct get_camera_control_range_params
+{
+    video_capture_device_t       device;
+    LONG                         property;
+    LONG                        *min;
+    LONG                        *max;
+    LONG                        *step;
+    LONG                        *default_value;
+    LONG                        *flags;
+};
+
+struct get_camera_control_params
+{
+    video_capture_device_t       device;
+    LONG                         property;
+    LONG                        *value;
+    LONG                        *flags;
+};
+
+struct set_camera_control_params
+{
+    video_capture_device_t       device;
+    LONG                         property;
+    LONG                         value;
+    LONG                         flags;
+};
 enum unix_funcs
 {
     unix_create,
@@ -156,6 +182,9 @@ enum unix_funcs
     unix_get_prop,
     unix_set_prop,
     unix_read_frame,
+    unix_get_camera_control_range,
+    unix_get_camera_control,
+    unix_set_camera_control,
     unix_funcs_count
 };
 
