@@ -23,6 +23,8 @@
 #include "dshow.h"
 #include "wine/test.h"
 #include "wine/strmbase.h"
+#include "initguid.h"
+#include "dmksctrl.h"
 
 static BOOL compare_media_types(const AM_MEDIA_TYPE *a, const AM_MEDIA_TYPE *b)
 {
@@ -393,6 +395,7 @@ static void test_filter_interfaces(IBaseFilter *filter)
     check_interface(filter, &IID_IAMVideoControl, TRUE);
     check_interface(filter, &IID_IAMVideoProcAmp, TRUE);
     check_interface(filter, &IID_IBaseFilter, TRUE);
+    check_interface(filter, &IID_IKsControl, TRUE);
     todo_wine check_interface(filter, &IID_IKsPropertySet, TRUE);
     todo_wine check_interface(filter, &IID_IMediaSeeking, TRUE);
     check_interface(filter, &IID_IPersistPropertyBag, TRUE);
