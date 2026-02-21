@@ -1586,6 +1586,7 @@ fi
 WINE_NOTICE_WITH(usb,[test "$ac_cv_func_libusb_interrupt_event_handler" != "yes"],
                  [libusb-1.0 ${notice_platform}development files not found (or too old), USB devices won't be supported.],
                  [enable_wineusb_sys])
+test "$ac_cv_func_libusb_interrupt_event_handler" = "yes" || enable_wineusb0_sys=${enable_wineusb0_sys:-no}
 
 dnl **** Check for libv4l2 ****
 if test "x$with_v4l2" != "xno"
@@ -3325,6 +3326,7 @@ WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16)
 WINE_CONFIG_MAKEFILE(dlls/winepulse.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineusb.sys)
+WINE_CONFIG_MAKEFILE(dlls/wineusb0.sys)
 WINE_CONFIG_MAKEFILE(dlls/winevulkan)
 WINE_CONFIG_MAKEFILE(dlls/winewayland.drv)
 WINE_CONFIG_MAKEFILE(dlls/winex11.drv)

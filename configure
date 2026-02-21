@@ -1628,6 +1628,7 @@ enable_wineps_drv
 enable_wineps16_drv16
 enable_winepulse_drv
 enable_wineusb_sys
+enable_wineusb0_sys
 enable_winevulkan
 enable_winewayland_drv
 enable_winex11_drv
@@ -17536,6 +17537,7 @@ This is an error since --with-usb was requested." "$LINENO" 5 ;;
 esac
 enable_wineusb_sys=${enable_wineusb_sys:-no}
 fi
+test "$ac_cv_func_libusb_interrupt_event_handler" = "yes" || enable_wineusb0_sys=${enable_wineusb0_sys:-no}
 
 if test "x$with_v4l2" != "xno"
 then
@@ -22794,6 +22796,7 @@ wine_fn_config_makefile dlls/wineps.drv enable_wineps_drv
 wine_fn_config_makefile dlls/wineps16.drv16 enable_wineps16_drv16
 wine_fn_config_makefile dlls/winepulse.drv enable_winepulse_drv
 wine_fn_config_makefile dlls/wineusb.sys enable_wineusb_sys
+wine_fn_config_makefile dlls/wineusb0.sys enable_wineusb0_sys
 wine_fn_config_makefile dlls/winevulkan enable_winevulkan
 wine_fn_config_makefile dlls/winewayland.drv enable_winewayland_drv
 wine_fn_config_makefile dlls/winex11.drv enable_winex11_drv
