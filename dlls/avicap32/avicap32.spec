@@ -2,3 +2,4 @@
 @ stdcall capCreateCaptureWindowW(wstr long long long long long long long)
 @ stdcall capGetDriverDescriptionA(long ptr long ptr long)
 @ stdcall capGetDriverDescriptionW(long ptr long ptr long)
+@ stdcall wine_capGetDeviceUsbIds(long ptr ptr)
