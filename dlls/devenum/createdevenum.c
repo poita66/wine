@@ -711,25 +711,50 @@ static void register_vfw_codecs(void)
     }
 }
 
+extern BOOL VFWAPI wine_capGetDeviceUsbIds(WORD index, unsigned short *vid, unsigned short *pid);
+
 static void register_avicap_devices(void)
 {
-    WCHAR friendlyname[32], version[32], device_path[32];
+    WCHAR friendlyname[32], version[32], device_path[128];
     IPropertyBag *prop_bag = NULL;
     REGFILTERPINS2 rgpins = {0};
     REGPINTYPES rgtypes;
     REGFILTER2 rgf;
-    WCHAR name[7];
+    WCHAR name[128];
     VARIANT var;
     HRESULT hr;
     int i = 0;
 
     for (i = 0; i < 10; ++i)
     {
+        unsigned short usb_vid = 0, usb_pid = 0;
+
         if (!capGetDriverDescriptionW(i, friendlyname, ARRAY_SIZE(friendlyname),
                 version, ARRAY_SIZE(version)))
             continue;
 
-        swprintf(name, ARRAY_SIZE(name), L"video%d", i);
+        /* Get USB VID/PID if available */
+        wine_capGetDeviceUsbIds(i, &usb_vid, &usb_pid);
+
+        /* Use USB device path as moniker name so GetDisplayName() contains vid_/pid_,
+         * matching the format that camera SDKs parse for device identification.
+         * Backslashes become # since they can't appear in registry key names. */
+        if (usb_vid)
+        {
+            swprintf(name, ARRAY_SIZE(name),
+                    L"##?#usb#vid_%04x&pid_%04x&mi_00#video%d#"
+                    L"{65e8773d-8f56-11d0-a3b9-00a0c9223196}",
+                    usb_vid, usb_pid, i);
+            swprintf(device_path, ARRAY_SIZE(device_path),
+                    L"\\\\?\\usb#vid_%04x&pid_%04x&mi_00#video%d#"
+                    L"{65e8773d-8f56-11d0-a3b9-00a0c9223196}",
+                    usb_vid, usb_pid, i);
+        }
+        else
+        {
+            swprintf(name, ARRAY_SIZE(name), L"video%d", i);
+            swprintf(device_path, ARRAY_SIZE(device_path), L"dummy_video%d", i);
+        }
 
         hr = register_codec(&CLSID_VideoInputDeviceCategory, name,
                 &CLSID_VfwCapture, friendlyname, &prop_bag);
@@ -753,7 +778,6 @@ static void register_avicap_devices(void)
         V_I4(&var) = i;
         IPropertyBag_Write(prop_bag, L"VFWIndex", &var);
 
-        swprintf(device_path, ARRAY_SIZE(device_path), L"dummy_video%d", i);
         V_VT(&var) = VT_BSTR;
         V_BSTR(&var) = SysAllocString(device_path);
         IPropertyBag_Write(prop_bag, L"DevicePath", &var);

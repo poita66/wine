@@ -9679,6 +9679,40 @@ static void test_MFEnumDeviceSources(void)
 
     CoTaskMemFree(sources);
     CoUninitialize();
+
+    /* Test video capture device enumeration. */
+    hr = MFCreateAttributes(&attrs, 1);
+    ok(hr == S_OK, "got %#lx.\n", hr);
+    hr = IMFAttributes_SetGUID(attrs, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+    ok(hr == S_OK, "got %#lx.\n", hr);
+
+    hr = CoInitialize(NULL);
+    ok(hr == S_OK, "got %#lx.\n", hr);
+
+    count = 0xdeadbeef;
+    sources = (void *)0xdeadbeef;
+    hr = MFEnumDeviceSources(attrs, &sources, &count);
+    ok(hr == S_OK, "got %#lx.\n", hr);
+    ok(count != 0xdeadbeef, "count not set.\n");
+
+    for (i = 0; i < count; ++i)
+    {
+        WCHAR str[512];
+
+        hr = IMFActivate_GetGUID(sources[i], &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &guid);
+        ok(hr == S_OK, "got %#lx.\n", hr);
+        ok(IsEqualGUID(&guid, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID), "got %s.\n", debugstr_guid(&guid));
+
+        hr = IMFActivate_GetString(sources[i], &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, str, ARRAY_SIZE(str), NULL);
+        ok(hr == S_OK, "got %#lx.\n", hr);
+        trace("Video capture device %lu: %s.\n", (unsigned long)i, wine_dbgstr_w(str));
+
+        IMFActivate_Release(sources[i]);
+    }
+
+    CoTaskMemFree(sources);
+    IMFAttributes_Release(attrs);
+    CoUninitialize();
 }
 
 static void test_media_session_Close(void)

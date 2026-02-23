@@ -25,6 +25,8 @@ struct get_device_desc_params
     WORD index;
     WCHAR name[CAP_DESC_MAX];
     WCHAR version[CAP_DESC_MAX];
+    unsigned short usb_vid;
+    unsigned short usb_pid;
 };
 
 enum unix_funcs

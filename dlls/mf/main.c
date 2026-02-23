@@ -23,6 +23,7 @@
 
 #include "windef.h"
 #include "winbase.h"
+#include "mfapi.h"
 #include "mfidl.h"
 #include "rpcproxy.h"
 
@@ -744,6 +745,337 @@ HRESULT WINAPI MFShutdownObject(IUnknown *object)
     return S_OK;
 }
 
+struct video_capture_source
+{
+    IMFMediaSource IMFMediaSource_iface;
+    LONG refcount;
+    IMFMediaEventQueue *event_queue;
+    CRITICAL_SECTION cs;
+    BOOL shutdown;
+};
+
+static inline struct video_capture_source *impl_from_video_capture_IMFMediaSource(IMFMediaSource *iface)
+{
+    return CONTAINING_RECORD(iface, struct video_capture_source, IMFMediaSource_iface);
+}
+
+static HRESULT WINAPI video_capture_source_QueryInterface(IMFMediaSource *iface, REFIID riid, void **out)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+
+    TRACE("%p, %s, %p.\n", source, debugstr_guid(riid), out);
+
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IMFMediaEventGenerator)
+            || IsEqualIID(riid, &IID_IMFMediaSource))
+    {
+        *out = &source->IMFMediaSource_iface;
+        IMFMediaSource_AddRef(iface);
+        return S_OK;
+    }
+
+    WARN("Unsupported %s.\n", debugstr_guid(riid));
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI video_capture_source_AddRef(IMFMediaSource *iface)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    ULONG refcount = InterlockedIncrement(&source->refcount);
+    TRACE("%p, refcount %lu.\n", source, refcount);
+    return refcount;
+}
+
+static ULONG WINAPI video_capture_source_Release(IMFMediaSource *iface)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    ULONG refcount = InterlockedDecrement(&source->refcount);
+
+    TRACE("%p, refcount %lu.\n", source, refcount);
+
+    if (!refcount)
+    {
+        if (source->event_queue)
+            IMFMediaEventQueue_Release(source->event_queue);
+        DeleteCriticalSection(&source->cs);
+        free(source);
+    }
+
+    return refcount;
+}
+
+static HRESULT WINAPI video_capture_source_GetEvent(IMFMediaSource *iface, DWORD flags, IMFMediaEvent **event)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    TRACE("%p, %#lx, %p.\n", source, flags, event);
+    return IMFMediaEventQueue_GetEvent(source->event_queue, flags, event);
+}
+
+static HRESULT WINAPI video_capture_source_BeginGetEvent(IMFMediaSource *iface,
+        IMFAsyncCallback *callback, IUnknown *state)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    TRACE("%p, %p, %p.\n", source, callback, state);
+    return IMFMediaEventQueue_BeginGetEvent(source->event_queue, callback, state);
+}
+
+static HRESULT WINAPI video_capture_source_EndGetEvent(IMFMediaSource *iface,
+        IMFAsyncResult *result, IMFMediaEvent **event)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    TRACE("%p, %p, %p.\n", source, result, event);
+    return IMFMediaEventQueue_EndGetEvent(source->event_queue, result, event);
+}
+
+static HRESULT WINAPI video_capture_source_QueueEvent(IMFMediaSource *iface, MediaEventType event_type,
+        REFGUID ext_type, HRESULT status, const PROPVARIANT *value)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+    TRACE("%p, %lu, %s, %#lx, %p.\n", source, event_type, debugstr_guid(ext_type), status, value);
+    return IMFMediaEventQueue_QueueEventParamVar(source->event_queue, event_type, ext_type, status, value);
+}
+
+static HRESULT WINAPI video_capture_source_GetCharacteristics(IMFMediaSource *iface, DWORD *characteristics)
+{
+    TRACE("%p, %p.\n", iface, characteristics);
+    if (!characteristics) return E_POINTER;
+    *characteristics = MFMEDIASOURCE_IS_LIVE;
+    return S_OK;
+}
+
+static HRESULT WINAPI video_capture_source_CreatePresentationDescriptor(IMFMediaSource *iface,
+        IMFPresentationDescriptor **descriptor)
+{
+    IMFStreamDescriptor *stream_desc;
+    IMFMediaType *media_type;
+    HRESULT hr;
+
+    TRACE("%p, %p.\n", iface, descriptor);
+
+    if (!descriptor) return E_POINTER;
+
+    if (FAILED(hr = MFCreateMediaType(&media_type)))
+        return hr;
+
+    IMFMediaType_SetGUID(media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    IMFMediaType_SetGUID(media_type, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
+    IMFMediaType_SetUINT64(media_type, &MF_MT_FRAME_SIZE, ((UINT64)640 << 32) | 480);
+    IMFMediaType_SetUINT64(media_type, &MF_MT_FRAME_RATE, ((UINT64)30 << 32) | 1);
+
+    hr = MFCreateStreamDescriptor(0, 1, &media_type, &stream_desc);
+    IMFMediaType_Release(media_type);
+    if (FAILED(hr))
+        return hr;
+
+    hr = MFCreatePresentationDescriptor(1, &stream_desc, descriptor);
+    if (SUCCEEDED(hr))
+        IMFPresentationDescriptor_SelectStream(*descriptor, 0);
+    IMFStreamDescriptor_Release(stream_desc);
+
+    return hr;
+}
+
+static HRESULT WINAPI video_capture_source_Start(IMFMediaSource *iface,
+        IMFPresentationDescriptor *descriptor, const GUID *time_format, const PROPVARIANT *start_position)
+{
+    TRACE("%p, %p, %s, %p.\n", iface, descriptor, debugstr_guid(time_format), start_position);
+    return S_OK;
+}
+
+static HRESULT WINAPI video_capture_source_Stop(IMFMediaSource *iface)
+{
+    TRACE("%p.\n", iface);
+    return S_OK;
+}
+
+static HRESULT WINAPI video_capture_source_Pause(IMFMediaSource *iface)
+{
+    TRACE("%p.\n", iface);
+    return S_OK;
+}
+
+static HRESULT WINAPI video_capture_source_Shutdown(IMFMediaSource *iface)
+{
+    struct video_capture_source *source = impl_from_video_capture_IMFMediaSource(iface);
+
+    TRACE("%p.\n", source);
+
+    EnterCriticalSection(&source->cs);
+    source->shutdown = TRUE;
+    if (source->event_queue)
+        IMFMediaEventQueue_Shutdown(source->event_queue);
+    LeaveCriticalSection(&source->cs);
+
+    return S_OK;
+}
+
+static const IMFMediaSourceVtbl video_capture_source_vtbl =
+{
+    video_capture_source_QueryInterface,
+    video_capture_source_AddRef,
+    video_capture_source_Release,
+    video_capture_source_GetEvent,
+    video_capture_source_BeginGetEvent,
+    video_capture_source_EndGetEvent,
+    video_capture_source_QueueEvent,
+    video_capture_source_GetCharacteristics,
+    video_capture_source_CreatePresentationDescriptor,
+    video_capture_source_Start,
+    video_capture_source_Stop,
+    video_capture_source_Pause,
+    video_capture_source_Shutdown,
+};
+
+static HRESULT video_capture_create_object(IMFAttributes *attributes, void *user_context, IUnknown **obj)
+{
+    struct video_capture_source *source;
+    HRESULT hr;
+
+    TRACE("%p, %p, %p.\n", attributes, user_context, obj);
+
+    if (!(source = calloc(1, sizeof(*source))))
+        return E_OUTOFMEMORY;
+
+    source->IMFMediaSource_iface.lpVtbl = &video_capture_source_vtbl;
+    source->refcount = 1;
+    InitializeCriticalSection(&source->cs);
+
+    if (FAILED(hr = MFCreateEventQueue(&source->event_queue)))
+    {
+        DeleteCriticalSection(&source->cs);
+        free(source);
+        return hr;
+    }
+
+    *obj = (IUnknown *)&source->IMFMediaSource_iface;
+    return S_OK;
+}
+
+static void video_capture_shutdown_object(void *user_context, IUnknown *obj)
+{
+    TRACE("%p %p.\n", user_context, obj);
+}
+
+static void video_capture_free_private(void *user_context)
+{
+    TRACE("%p.\n", user_context);
+}
+
+static const struct activate_funcs video_capture_activate_funcs =
+{
+    video_capture_create_object,
+    video_capture_shutdown_object,
+    video_capture_free_private,
+};
+
+typedef BOOL (WINAPI *capGetDriverDescriptionW_func)(WORD, WCHAR *, int, WCHAR *, int);
+typedef BOOL (WINAPI *wine_capGetDeviceUsbIds_func)(WORD, unsigned short *, unsigned short *);
+
+static HRESULT enum_video_capture_sources(IMFAttributes *attributes, IMFActivate ***ret_sources, UINT32 *ret_count)
+{
+    capGetDriverDescriptionW_func pCapGetDriverDescriptionW;
+    wine_capGetDeviceUsbIds_func pWineCapGetDeviceUsbIds;
+    IMFActivate **sources = NULL;
+    UINT32 count = 0;
+    HMODULE avicap32;
+    HRESULT hr = S_OK;
+    int i;
+
+    TRACE("Enumerating video capture devices via avicap32.\n");
+
+    *ret_sources = NULL;
+    *ret_count = 0;
+
+    avicap32 = LoadLibraryW(L"avicap32.dll");
+    if (!avicap32)
+    {
+        WARN("Failed to load avicap32.dll.\n");
+        return S_OK;
+    }
+
+    pCapGetDriverDescriptionW = (void *)GetProcAddress(avicap32, "capGetDriverDescriptionW");
+    pWineCapGetDeviceUsbIds = (void *)GetProcAddress(avicap32, "wine_capGetDeviceUsbIds");
+
+    if (!pCapGetDriverDescriptionW)
+    {
+        FreeLibrary(avicap32);
+        return S_OK;
+    }
+
+    /* Count devices first. */
+    for (i = 0; i < 10; ++i)
+    {
+        WCHAR name[32], version[32];
+        if (pCapGetDriverDescriptionW(i, name, ARRAY_SIZE(name), version, ARRAY_SIZE(version)))
+            count++;
+    }
+
+    if (!count)
+    {
+        FreeLibrary(avicap32);
+        return S_OK;
+    }
+
+    sources = CoTaskMemAlloc(count * sizeof(*sources));
+    if (!sources)
+    {
+        FreeLibrary(avicap32);
+        return E_OUTOFMEMORY;
+    }
+
+    count = 0;
+    for (i = 0; i < 10; ++i)
+    {
+        WCHAR name[32], version[32], symbolic_link[128];
+        unsigned short usb_vid = 0, usb_pid = 0;
+        IMFActivate *activate;
+
+        if (!pCapGetDriverDescriptionW(i, name, ARRAY_SIZE(name), version, ARRAY_SIZE(version)))
+            continue;
+
+        if (pWineCapGetDeviceUsbIds)
+            pWineCapGetDeviceUsbIds(i, &usb_vid, &usb_pid);
+
+        if (usb_vid)
+        {
+            swprintf(symbolic_link, ARRAY_SIZE(symbolic_link),
+                    L"\\\\?\\usb#vid_%04x&pid_%04x&mi_00#video%d#"
+                    L"{65e8773d-8f56-11d0-a3b9-00a0c9223196}",
+                    usb_vid, usb_pid, i);
+        }
+        else
+        {
+            swprintf(symbolic_link, ARRAY_SIZE(symbolic_link), L"\\\\?\\video%d", i);
+        }
+
+        if (FAILED(hr = create_activation_object(NULL, &video_capture_activate_funcs, &activate)))
+        {
+            UINT32 j;
+            for (j = 0; j < count; ++j)
+                IMFActivate_Release(sources[j]);
+            CoTaskMemFree(sources);
+            FreeLibrary(avicap32);
+            return hr;
+        }
+
+        IMFActivate_SetGUID(activate, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+        IMFActivate_SetString(activate, &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, name);
+        IMFActivate_SetString(activate, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, symbolic_link);
+
+        TRACE("Found video device: %s (%s).\n", debugstr_w(name), debugstr_w(symbolic_link));
+
+        sources[count++] = activate;
+    }
+
+    FreeLibrary(avicap32);
+
+    *ret_sources = sources;
+    *ret_count = count;
+    TRACE("Returning %u video capture devices.\n", count);
+    return S_OK;
+}
+
 /***********************************************************************
  *      MFEnumDeviceSources (mf.@)
  */
@@ -761,11 +1093,7 @@ HRESULT WINAPI MFEnumDeviceSources(IMFAttributes *attributes, IMFActivate ***sou
         return hr;
 
     if (IsEqualGUID(&source_type, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID))
-    {
-        FIXME("Not implemented for video capture devices.\n");
-        *ret_count = 0;
-        return S_OK;
-    }
+        return enum_video_capture_sources(attributes, sources, ret_count);
     if (IsEqualGUID(&source_type, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_GUID))
         return enum_audio_capture_sources(attributes, sources, ret_count);
 

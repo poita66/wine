@@ -3064,6 +3064,9 @@ HRESULT WINAPI MFCreateSourceReaderFromMediaSource(IMFMediaSource *source, IMFAt
 {
     TRACE("%p, %p, %p.\n", source, attributes, reader);
 
+    if (!source)
+        return E_INVALIDARG;
+
     return create_source_reader_from_object((IUnknown *)source, attributes, &IID_IMFSourceReader, (void **)reader);
 }
 

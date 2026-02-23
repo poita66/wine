@@ -132,6 +132,23 @@ BOOL VFWAPI capGetDriverDescriptionW(WORD index, WCHAR *name, int name_len, WCHA
     return TRUE;
 }
 
+/***********************************************************************
+ *             wine_capGetDeviceUsbIds   (AVICAP32.@)
+ *
+ * Wine-internal function to retrieve USB VID/PID for a video capture device.
+ */
+BOOL VFWAPI wine_capGetDeviceUsbIds(WORD index, unsigned short *vid, unsigned short *pid)
+{
+    struct get_device_desc_params params;
+
+    params.index = index;
+    if (WINE_UNIX_CALL(unix_get_device_desc, &params)) return FALSE;
+
+    if (vid) *vid = params.usb_vid;
+    if (pid) *pid = params.usb_pid;
+    return TRUE;
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
 {
     switch (reason)

@@ -105,7 +105,10 @@ static NTSTATUS get_device_desc(void *args)
         if (is_capture_device)
         {
             char version[CAP_DESC_MAX];
+            char sysfs_path[64];
             int ret;
+            unsigned int val;
+            FILE *f;
 
             v4l_umbstowcs((char *)caps.card, strlen((char *)caps.card),
                     params->name, ARRAY_SIZE(params->name));
@@ -113,6 +116,26 @@ static NTSTATUS get_device_desc(void *args)
             ret = snprintf(version, ARRAY_SIZE(version), "%s v%u.%u.%u", (char *)caps.driver,
                     (caps.version >> 16) & 0xff, (caps.version >> 8) & 0xff, caps.version & 0xff);
             v4l_umbstowcs(version, ret, params->version, ARRAY_SIZE(params->version));
+
+            /* Read USB VID/PID from sysfs. */
+            params->usb_vid = 0;
+            params->usb_pid = 0;
+            snprintf(sysfs_path, sizeof(sysfs_path),
+                    "/sys/class/video4linux/video%u/device/../idVendor", params->index);
+            if ((f = fopen(sysfs_path, "r")))
+            {
+                if (fscanf(f, "%x", &val) == 1)
+                    params->usb_vid = val;
+                fclose(f);
+            }
+            snprintf(sysfs_path, sizeof(sysfs_path),
+                    "/sys/class/video4linux/video%u/device/../idProduct", params->index);
+            if ((f = fopen(sysfs_path, "r")))
+            {
+                if (fscanf(f, "%x", &val) == 1)
+                    params->usb_pid = val;
+                fclose(f);
+            }
         }
         close(fd);
         return is_capture_device ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
