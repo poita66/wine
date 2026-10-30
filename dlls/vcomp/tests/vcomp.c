@@ -88,6 +88,9 @@ static void  (CDECL   *p_vcomp_flush)(void);
 static void  (CDECL   *p_vcomp_for_dynamic_init)(unsigned int flags, unsigned int first, unsigned int last,
                                                  int step, unsigned int chunksize);
 static int   (CDECL   *p_vcomp_for_dynamic_next)(unsigned int *begin, unsigned int *end);
+static void  (CDECL   *p_vcomp_for_dynamic_init_i8)(unsigned int flags, ULONG64 first, ULONG64 last,
+                                                    LONG64 step, ULONG64 chunksize);
+static int   (CDECL   *p_vcomp_for_dynamic_next_i8)(ULONG64 *begin, ULONG64 *end);
 static void  (CDECL   *p_vcomp_for_static_end)(void);
 static void  (CDECL   *p_vcomp_for_static_init)(int first, int last, int step, int chunksize, unsigned int *loops,
                                                 int *begin, int *end, int *next, int *lastchunk);
@@ -331,6 +334,8 @@ static BOOL init_vcomp(void)
     VCOMP_GET_PROC(_vcomp_flush);
     VCOMP_GET_PROC(_vcomp_for_dynamic_init);
     VCOMP_GET_PROC(_vcomp_for_dynamic_next);
+    VCOMP_GET_PROC(_vcomp_for_dynamic_init_i8);
+    VCOMP_GET_PROC(_vcomp_for_dynamic_next_i8);
     VCOMP_GET_PROC(_vcomp_for_static_end);
     VCOMP_GET_PROC(_vcomp_for_static_init);
     VCOMP_GET_PROC(_vcomp_for_static_init_i8);
@@ -1615,6 +1620,92 @@ static void CDECL for_dynamic_guided_cb(unsigned int flags, LONG *a, LONG *b, LO
     }
 }
 
+/* 64-bit bounds above 4G, so a 32-bit implementation would truncate them. */
+#define DYNAMIC_I8_BASE 0x100000000ull
+
+static void CDECL for_dynamic_chunked_i8_cb(LONG64 *a, LONG64 *b)
+{
+    ULONG64 begin, end;
+
+    p_vcomp_for_dynamic_init_i8(VCOMP_DYNAMIC_FLAGS_CHUNKED | VCOMP_DYNAMIC_FLAGS_INCREMENT,
+                                DYNAMIC_I8_BASE, DYNAMIC_I8_BASE + 1000, 7, 5);
+    while (p_vcomp_for_dynamic_next_i8(&begin, &end))
+    {
+        ok(begin >= DYNAMIC_I8_BASE, "got begin %s\n", wine_dbgstr_longlong(begin));
+        if (begin == DYNAMIC_I8_BASE + 980)
+            ok(end == DYNAMIC_I8_BASE + 1000, "got end %s\n", wine_dbgstr_longlong(end));
+        else
+            ok(begin + 28 == end, "got begin %s end %s\n", wine_dbgstr_longlong(begin),
+               wine_dbgstr_longlong(end));
+        InterlockedExchangeAdd64(a, begin - DYNAMIC_I8_BASE);
+    }
+
+    p_vcomp_for_dynamic_init_i8(VCOMP_DYNAMIC_FLAGS_CHUNKED, DYNAMIC_I8_BASE + 1000,
+                                DYNAMIC_I8_BASE, 7, 5);
+    while (p_vcomp_for_dynamic_next_i8(&begin, &end))
+    {
+        ok(begin >= DYNAMIC_I8_BASE, "got begin %s\n", wine_dbgstr_longlong(begin));
+        if (begin == DYNAMIC_I8_BASE + 20)
+            ok(end == DYNAMIC_I8_BASE, "got end %s\n", wine_dbgstr_longlong(end));
+        else
+            ok(begin - 28 == end, "got begin %s end %s\n", wine_dbgstr_longlong(begin),
+               wine_dbgstr_longlong(end));
+        InterlockedExchangeAdd64(b, begin - DYNAMIC_I8_BASE);
+    }
+}
+
+static void CDECL for_dynamic_static_i8_cb(void)
+{
+    ULONG64 begin, end;
+    int ret;
+
+    p_vcomp_for_dynamic_init_i8(VCOMP_DYNAMIC_FLAGS_STATIC | VCOMP_DYNAMIC_FLAGS_INCREMENT,
+                                DYNAMIC_I8_BASE, DYNAMIC_I8_BASE + 1000, 7, 1);
+    ret = p_vcomp_for_dynamic_next_i8(&begin, &end);
+    if (pomp_get_num_threads() == 1)
+    {
+        ok(ret == TRUE, "expected ret == TRUE, got %d\n", ret);
+        ok(begin == DYNAMIC_I8_BASE, "got begin %s\n", wine_dbgstr_longlong(begin));
+        ok(end == DYNAMIC_I8_BASE + 994, "got end %s\n", wine_dbgstr_longlong(end));
+    }
+    ret = p_vcomp_for_dynamic_next_i8(&begin, &end);
+    ok(ret == FALSE, "expected ret == FALSE, got %d\n", ret);
+}
+
+static void test_vcomp_for_dynamic_init_i8(void)
+{
+    LONG64 a, b;
+    int max_threads = pomp_get_max_threads();
+    int i;
+
+    if (!p_vcomp_for_dynamic_init_i8 || !p_vcomp_for_dynamic_next_i8)
+    {
+        win_skip("_vcomp_for_dynamic_init_i8 or _vcomp_for_dynamic_next_i8 not available\n");
+        return;
+    }
+
+    for_dynamic_static_i8_cb();
+
+    /* Sums of the chunk starts relative to the base: 0, 35, ..., 980 and 1000, 965, ..., 20. */
+    a = b = 0;
+    for_dynamic_chunked_i8_cb(&a, &b);
+    ok(a == 14210, "expected a == 14210, got %s\n", wine_dbgstr_longlong(a));
+    ok(b == 14790, "expected b == 14790, got %s\n", wine_dbgstr_longlong(b));
+
+    for (i = 1; i <= 4; i++)
+    {
+        pomp_set_num_threads(i);
+        p_vcomp_fork(TRUE, 0, for_dynamic_static_i8_cb);
+
+        a = b = 0;
+        p_vcomp_fork(TRUE, 2, for_dynamic_chunked_i8_cb, &a, &b);
+        ok(a == 14210, "expected a == 14210, got %s\n", wine_dbgstr_longlong(a));
+        ok(b == 14790, "expected b == 14790, got %s\n", wine_dbgstr_longlong(b));
+    }
+
+    pomp_set_num_threads(max_threads);
+}
+
 static void test_vcomp_for_dynamic_init(void)
 {
     static const int guided_a[] = {0, 6041, 9072, 11179};
@@ -2665,6 +2756,7 @@ START_TEST(vcomp)
     test_vcomp_for_static_simple_init();
     test_vcomp_for_static_init();
     test_vcomp_for_dynamic_init();
+    test_vcomp_for_dynamic_init_i8();
     test_vcomp_master_begin();
     test_vcomp_single_begin();
     test_vcomp_enter_critsect();

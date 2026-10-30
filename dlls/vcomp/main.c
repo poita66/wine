@@ -82,8 +82,8 @@ struct vcomp_thread_data
     /* dynamic */
     unsigned int            dynamic;
     unsigned int            dynamic_type;
-    unsigned int            dynamic_begin;
-    unsigned int            dynamic_end;
+    ULONG64                 dynamic_begin;
+    ULONG64                 dynamic_end;
 };
 
 struct vcomp_team_data
@@ -114,11 +114,11 @@ struct vcomp_task_data
 
     /* dynamic */
     unsigned int            dynamic;
-    unsigned int            dynamic_first;
-    unsigned int            dynamic_last;
-    unsigned int            dynamic_iterations;
-    int                     dynamic_step;
-    unsigned int            dynamic_chunksize;
+    ULONG64                 dynamic_first;
+    ULONG64                 dynamic_last;
+    ULONG64                 dynamic_iterations;
+    LONG64                  dynamic_step;
+    ULONG64                 dynamic_chunksize;
 };
 
 extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args);
@@ -1271,32 +1271,20 @@ void CDECL _vcomp_for_static_end(void)
     /* nothing to do here */
 }
 
-void CDECL _vcomp_for_dynamic_init(unsigned int flags, unsigned int first, unsigned int last,
-                                   int step, unsigned int chunksize)
+/* Shared by the 32-bit and 64-bit dynamic schedule functions. The callers compute the
+ * iteration count in their own integer width and pass a step that is already negated for
+ * decrementing loops; the 32-bit next function truncates the bounds it returns, which keeps
+ * the original 32-bit wraparound behaviour. */
+static void for_dynamic_init(unsigned int flags, ULONG64 first, ULONG64 last, LONG64 step,
+                             ULONG64 chunksize, ULONG64 iterations)
 {
-    unsigned int iterations, per_thread, remaining;
+    ULONG64 per_thread, remaining;
     struct vcomp_thread_data *thread_data = vcomp_init_thread_data();
     struct vcomp_team_data *team_data = thread_data->team;
     struct vcomp_task_data *task_data = thread_data->task;
     int num_threads = team_data ? team_data->num_threads : 1;
     int thread_num = thread_data->thread_num;
     unsigned int type = flags & ~(VCOMP_DYNAMIC_FLAGS_INCREMENT | VCOMP_DYNAMIC_FLAGS_RUNTIME);
-
-    TRACE("(%u, %u, %u, %d, %u)\n", flags, first, last, step, chunksize);
-
-    if (step <= 0)
-    {
-        thread_data->dynamic_type = 0;
-        return;
-    }
-
-    if (flags & VCOMP_DYNAMIC_FLAGS_INCREMENT)
-        iterations = 1 + (last - first) / step;
-    else
-    {
-        iterations = 1 + (first - last) / step;
-        step *= -1;
-    }
 
     if (type == VCOMP_DYNAMIC_FLAGS_STATIC)
     {
@@ -1342,14 +1330,12 @@ void CDECL _vcomp_for_dynamic_init(unsigned int flags, unsigned int first, unsig
     }
 }
 
-int CDECL _vcomp_for_dynamic_next(unsigned int *begin, unsigned int *end)
+static int for_dynamic_next(ULONG64 *begin, ULONG64 *end)
 {
     struct vcomp_thread_data *thread_data = vcomp_init_thread_data();
     struct vcomp_task_data *task_data = thread_data->task;
     struct vcomp_team_data *team_data = thread_data->team;
     int num_threads = team_data ? team_data->num_threads : 1;
-
-    TRACE("(%p, %p)\n", begin, end);
 
     if (thread_data->dynamic_type == VCOMP_DYNAMIC_FLAGS_STATIC)
     {
@@ -1361,7 +1347,7 @@ int CDECL _vcomp_for_dynamic_next(unsigned int *begin, unsigned int *end)
     else if (thread_data->dynamic_type == VCOMP_DYNAMIC_FLAGS_CHUNKED ||
              thread_data->dynamic_type == VCOMP_DYNAMIC_FLAGS_GUIDED)
     {
-        unsigned int iterations = 0;
+        ULONG64 iterations = 0;
         EnterCriticalSection(&vcomp_section);
         if (thread_data->dynamic == task_data->dynamic &&
             task_data->dynamic_iterations != 0)
@@ -1384,6 +1370,77 @@ int CDECL _vcomp_for_dynamic_next(unsigned int *begin, unsigned int *end)
     }
 
     return 0;
+}
+
+void CDECL _vcomp_for_dynamic_init(unsigned int flags, unsigned int first, unsigned int last,
+                                   int step, unsigned int chunksize)
+{
+    unsigned int iterations;
+
+    TRACE("(%u, %u, %u, %d, %u)\n", flags, first, last, step, chunksize);
+
+    if (step <= 0)
+    {
+        vcomp_init_thread_data()->dynamic_type = 0;
+        return;
+    }
+
+    if (flags & VCOMP_DYNAMIC_FLAGS_INCREMENT)
+        iterations = 1 + (last - first) / step;
+    else
+    {
+        iterations = 1 + (first - last) / step;
+        step *= -1;
+    }
+
+    for_dynamic_init(flags, first, last, step, chunksize, iterations);
+}
+
+void CDECL _vcomp_for_dynamic_init_i8(unsigned int flags, ULONG64 first, ULONG64 last,
+                                      LONG64 step, ULONG64 chunksize)
+{
+    ULONG64 iterations;
+
+    TRACE("(%u, %s, %s, %s, %s)\n", flags, wine_dbgstr_longlong(first), wine_dbgstr_longlong(last),
+          wine_dbgstr_longlong(step), wine_dbgstr_longlong(chunksize));
+
+    if (step <= 0)
+    {
+        vcomp_init_thread_data()->dynamic_type = 0;
+        return;
+    }
+
+    if (flags & VCOMP_DYNAMIC_FLAGS_INCREMENT)
+        iterations = 1 + (last - first) / step;
+    else
+    {
+        iterations = 1 + (first - last) / step;
+        step *= -1;
+    }
+
+    for_dynamic_init(flags, first, last, step, chunksize, iterations);
+}
+
+int CDECL _vcomp_for_dynamic_next(unsigned int *begin, unsigned int *end)
+{
+    ULONG64 begin64, end64;
+    int ret;
+
+    TRACE("(%p, %p)\n", begin, end);
+
+    if ((ret = for_dynamic_next(&begin64, &end64)))
+    {
+        *begin = begin64;
+        *end   = end64;
+    }
+    return ret;
+}
+
+int CDECL _vcomp_for_dynamic_next_i8(ULONG64 *begin, ULONG64 *end)
+{
+    TRACE("(%p, %p)\n", begin, end);
+
+    return for_dynamic_next(begin, end);
 }
 
 int CDECL omp_in_parallel(void)
