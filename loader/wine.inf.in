@@ -153,6 +153,7 @@ AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
 AddService=nsiproxy,0x800,NsiProxyService
+AddService=wineusb0,0,Wineusb0Service
 
 [DefaultInstall.ntx86.Services]
 AddService=BITS,0,BITSService
@@ -174,6 +175,7 @@ AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
 AddService=nsiproxy,0x800,NsiProxyService
+AddService=wineusb0,0,Wineusb0Service
 
 [DefaultInstall.ntamd64.Services]
 AddService=BITS,0,BITSService
@@ -195,6 +197,7 @@ AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
 AddService=nsiproxy,0x800,NsiProxyService
+AddService=wineusb0,0,Wineusb0Service
 
 [DefaultInstall.ntarm64.Services]
 AddService=BITS,0,BITSService
@@ -216,6 +219,7 @@ AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
 AddService=nsiproxy,0x800,NsiProxyService
+AddService=wineusb0,0,Wineusb0Service
 
 [Strings]
 MciExtStr="Software\Microsoft\Windows NT\CurrentVersion\MCI Extensions"
@@ -973,6 +977,14 @@ LoadOrderGroup="System Bus Extender"
 
 [NsiProxyServiceKeys]
 HKR,,"Tag",0x10001,1
+
+[Wineusb0Service]
+Description="Exposes USB devices to libusb-win32 applications"
+DisplayName="libusb-win32 compatibility driver"
+ServiceBinary="%12%\wineusb0.sys"
+ServiceType=1
+StartType=2
+ErrorControl=1
 
 [RpcSsService]
 Description="RPC service"
